@@ -1,2 +1,2 @@
-fyne.io/fyne/v2 v2.7.4 h1:OVCI5mT+Onb2kA4wlmGA5pLCqKik9f4NDb5jiR1OMTc=
-fyne.io/fyne/v2 v2.7.4/go.mod h1:ZD1mmhBY75mSa97IXl3MPlICd1uNHfCXYh5hKIlVOII=
+github.com/gorilla/websocket v1.5.3 h1:saDtZ6Pbx/0u+bgYQ3q96pZgCzfhKXGPqt7kZ72aNNg=
+github.com/gorilla/websocket v1.5.3/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=

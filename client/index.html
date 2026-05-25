@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>game client</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: monospace;
+    }
+    #canvas {
+      border: 1px solid #333;
+      background: #0d0d1a;
+      display: block;
+    }
+    #status {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #666;
+      letter-spacing: 0.05em;
+    }
+    #status.connected    { color: #1d9e75; }
+    #status.disconnected { color: #e24b4a; }
+  </style>
+</head>
+<body>
+
+<canvas id="canvas" width="600" height="400"></canvas>
+<div id="status" class="disconnected">disconnected</div>
+
+<script>
+  const canvas = document.getElementById('canvas');
+  const ctx    = document.getElementById('canvas').getContext('2d');
+  const status = document.getElementById('status');
+
+  const COLORS = ['#5DCAA5', '#85B7EB', '#F0997B', '#ED93B1', '#AFA9EC'];
+
+  let players = {};
+  let myId    = null;
+  let ws      = null;
+  let keys    = { w: false, a: false, s: false, d: false };
+
+  function connect() {
+    ws = new WebSocket('ws://localhost:8080/ws');
+
+    ws.onopen = () => {
+      status.textContent = 'connected';
+      status.className   = 'connected';
+    };
+
+    ws.onclose = () => {
+      status.textContent = 'disconnected — retrying...';
+      status.className   = 'disconnected';
+      setTimeout(connect, 2000);
+    };
+
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'init') {
+        myId = msg.id;
+      } else if (msg.type === 'state') {
+        players = msg.players;
+      }
+    };
+  }
+
+  document.addEventListener('keydown', (e) => {
+    const k = e.key.toLowerCase();
+    if (['w', 'a', 's', 'd'].includes(k) && !keys[k]) {
+      keys[k] = true;
+      sendInput();
+    }
+  });
+
+  document.addEventListener('keyup', (e) => {
+    const k = e.key.toLowerCase();
+    if (['w', 'a', 's', 'd'].includes(k)) {
+      keys[k] = false;
+      sendInput();
+    }
+  });
+
+  function sendInput() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'input', keys }));
+  }
+
+  function colorForId(id) {
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) {
+      hash = id.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return COLORS[Math.abs(hash) % COLORS.length];
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.strokeStyle = '#1a1a2e';
+    ctx.lineWidth   = 0.5;
+    for (let x = 0; x < canvas.width; x += 40) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+    }
+    for (let y = 0; y < canvas.height; y += 40) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+    }
+
+    for (const [id, p] of Object.entries(players)) {
+      const color = colorForId(id);
+      const isMe  = id === myId;
+
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, isMe ? 10 : 8, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+
+      if (isMe) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 14, 0, Math.PI * 2);
+        ctx.strokeStyle = color;
+        ctx.lineWidth   = 1.5;
+        ctx.stroke();
+      }
+
+      ctx.fillStyle  = '#ffffff99';
+      ctx.font       = '10px monospace';
+      ctx.textAlign  = 'center';
+      ctx.fillText(isMe ? 'you' : id.slice(0, 4), p.x, p.y - 18);
+    }
+
+    requestAnimationFrame(draw);
+  }
+
+  connect();
+  draw();
+</script>
+
+</body>
+</html>
