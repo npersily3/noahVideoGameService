@@ -15,21 +15,48 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
+var requestNumber uint32 = 0
+
+func getClientUDPMessage(message InputMessage) ClientUDPMessage {
+	udp := ClientUDPMessage{}
+
+	udp.request_number = requestNumber
+	requestNumber++
+
+	var bitmap byte
+	bitmap = 0
+
+	if message.Keys.W {
+		bitmap |= 1
+	}
+	if message.Keys.A {
+		bitmap |= 2
+	}
+	if message.Keys.S {
+		bitmap |= 4
+	}
+	if message.Keys.D {
+		bitmap |= 8
+	}
+
+	return udp
+}
+
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	//upgrade http connection to websocket connection
-	conn, err := upgrader.Upgrade(w, r, nil)
+	frontendConn, err := upgrader.Upgrade(w, r, nil)
 
 	if err != nil {
 		log.Println(err)
 		return
 	}
 
-	defer conn.Close()
+	defer frontendConn.Close()
 
 	//HandleWebsocket message
 
 	for {
-		_, raw, err := conn.ReadMessage()
+		_, raw, err := frontendConn.ReadMessage()
 
 		if err != nil {
 			log.Println(err)
@@ -42,11 +69,31 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 		if err != nil {
 			log.Println(err)
+			return
 		}
 
 		fmt.Printf("%+v\n", message)
 
 		//TODO, now I have the keystrokes in bools in message
+		udpMessage := getClientUDPMessage(message)
+
+		fmt.Printf("udP: %+v\n", udpMessage)
+
+		rawMessage, err := json.Marshal(udpMessage)
+
+		fmt.Printf("raw: %+v\n", rawMessage)
+
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		_, err = gameServerConn.Write(rawMessage)
+
+		if err != nil {
+			log.Println(err)
+			return
+		}
 
 		//TODO this nil state is how we send messages back to the frontend
 		state := StateMessage{}
@@ -55,7 +102,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			log.Println(err)
 		}
 
-		err = conn.WriteMessage(websocket.TextMessage, out)
+		err = frontendConn.WriteMessage(websocket.TextMessage, out)
 
 		if err != nil {
 			log.Println(err)
@@ -65,18 +112,21 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 }
 
+var gameServerConn net.Conn
+var err error
+
 func main() {
 
 	//connect to server
-	conn, err := net.Dial("udp", "127.0.0.1:34254")
+	gameServerConn, err = net.Dial("udp", "127.0.0.1:34254")
 
 	if err != nil {
 		panic(err)
 	}
 
-	defer conn.Close()
+	defer gameServerConn.Close()
 
-	_, err = conn.Write([]byte("hello world"))
+	_, err = gameServerConn.Write([]byte("hello world"))
 
 	if err != nil {
 		panic(err)

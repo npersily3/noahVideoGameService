@@ -20,3 +20,15 @@ type PlayerState struct {
 	X float64 `json:"x"`
 	Y float64 `json:"y"`
 }
+
+type ClientUDPMessage struct {
+	//keep track of which input to send
+	request_number uint32 `json:"request_number"`
+	//which input was sent, this is a bitmap so if I press w and s the map will look like 1010
+	user_input uint8 `json:"inputBitmap"`
+}
+
+type ServerUDPMessage struct {
+	request_number uint32       `json:"request_number"`
+	State         StateMessage `json:"state"`
+}
