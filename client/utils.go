@@ -1,5 +1,10 @@
 package main
 
+import (
+	"math/rand"
+	"net"
+)
+
 // matches what the browser sends
 type InputMessage struct {
 	Type string `json:"type"`
@@ -22,13 +27,34 @@ type PlayerState struct {
 }
 
 type ClientUDPMessage struct {
+	UserID uint64 `json:"user_id"`
 	//keep track of which input to send
-	request_number uint32 `json:"request_number"`
+	Request_number uint32 `json:"request_number"`
 	//which input was sent, this is a bitmap so if I press w and s the map will look like 1010
-	user_input uint8 `json:"inputBitmap"`
+	User_input uint8 `json:"inputBitmap"`
 }
 
 type ServerUDPMessage struct {
 	request_number uint32       `json:"request_number"`
-	State         StateMessage `json:"state"`
+	State          StateMessage `json:"state"`
+}
+
+type ClientState struct {
+	id         uint64
+	player     PlayerState
+	serverConn net.Conn
+}
+
+func (c ClientState) initClientState() {
+	c.player = PlayerState{
+		X: 0,
+		Y: 0,
+	}
+	c.id = rand.Uint64()
+
+	c.serverConn, err = net.Dial("udp", "127.0.0.1:34254")
+
+	if err != nil {
+		panic(err)
+	}
 }

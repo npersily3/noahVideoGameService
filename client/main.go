@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"net"
 	"net/http"
 
 	"github.com/gorilla/websocket"
@@ -20,7 +19,7 @@ var requestNumber uint32 = 0
 func getClientUDPMessage(message InputMessage) ClientUDPMessage {
 	udp := ClientUDPMessage{}
 
-	udp.request_number = requestNumber
+	udp.Request_number = requestNumber
 	requestNumber++
 
 	var bitmap byte
@@ -39,7 +38,18 @@ func getClientUDPMessage(message InputMessage) ClientUDPMessage {
 		bitmap |= 8
 	}
 
+	udp.UserID = clientState.id
+	udp.User_input = bitmap
+
 	return udp
+}
+
+func converServerMessageToGameState(serverMessage ServerUDPMessage) PlayerState {
+	var playerState PlayerState
+
+	//playerState.X = serverMessage.State.
+
+	return playerState
 }
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -63,23 +73,25 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		var message InputMessage
+		var inputMessage InputMessage
+		var rawMessage []byte
+		var serverMessage ServerUDPMessage
 
-		err = json.Unmarshal(raw, &message)
+		err = json.Unmarshal(raw, &inputMessage)
 
 		if err != nil {
 			log.Println(err)
 			return
 		}
 
-		fmt.Printf("%+v\n", message)
+		fmt.Printf("%+v\n", inputMessage)
 
 		//TODO, now I have the keystrokes in bools in message
-		udpMessage := getClientUDPMessage(message)
+		udpMessage := getClientUDPMessage(inputMessage)
 
 		fmt.Printf("udP: %+v\n", udpMessage)
 
-		rawMessage, err := json.Marshal(udpMessage)
+		rawMessage, err = json.Marshal(udpMessage)
 
 		fmt.Printf("raw: %+v\n", rawMessage)
 
@@ -88,16 +100,20 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		_, err = gameServerConn.Write(rawMessage)
+		_, err = clientState.serverConn.Write(rawMessage)
 
 		if err != nil {
 			log.Println(err)
 			return
 		}
 
+		_, err = clientState.serverConn.Read(rawMessage)
+
+		err = json.Unmarshal(rawMessage, &serverMessage)
+
 		//TODO this nil state is how we send messages back to the frontend
-		state := StateMessage{}
-		out, err := json.Marshal(state)
+		gameState := StateMessage{}
+		out, err := json.Marshal(gameState)
 		if err != nil {
 			log.Println(err)
 		}
@@ -112,21 +128,14 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 }
 
-var gameServerConn net.Conn
 var err error
+var clientState ClientState
 
 func main() {
 
-	//connect to server
-	gameServerConn, err = net.Dial("udp", "127.0.0.1:34254")
+	clientState.initClientState()
 
-	if err != nil {
-		panic(err)
-	}
-
-	defer gameServerConn.Close()
-
-	_, err = gameServerConn.Write([]byte("hello world"))
+	defer clientState.serverConn.Close()
 
 	if err != nil {
 		panic(err)
