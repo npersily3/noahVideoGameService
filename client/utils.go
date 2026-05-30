@@ -35,7 +35,7 @@ type ClientUDPMessage struct {
 }
 
 type ServerUDPMessage struct {
-	request_number uint32       `json:"request_number"`
+	Request_number uint32       `json:"request_number"`
 	State          StateMessage `json:"state"`
 }
 
@@ -45,7 +45,7 @@ type ClientState struct {
 	serverConn net.Conn
 }
 
-func (c ClientState) initClientState() {
+func (c *ClientState) initClientState() {
 	c.player = PlayerState{
 		X: 0,
 		Y: 0,

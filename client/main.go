@@ -44,12 +44,14 @@ func getClientUDPMessage(message InputMessage) ClientUDPMessage {
 	return udp
 }
 
-func converServerMessageToGameState(serverMessage ServerUDPMessage) PlayerState {
-	var playerState PlayerState
+func convertServerMessageToGameState(serverMessage ServerUDPMessage) StateMessage {
+	var stateMessage StateMessage
 
-	//playerState.X = serverMessage.State.
+	stateMessage.Type = "state"
 
-	return playerState
+	stateMessage = serverMessage.State
+
+	return stateMessage
 }
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -112,7 +114,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		err = json.Unmarshal(rawMessage, &serverMessage)
 
 		//TODO this nil state is how we send messages back to the frontend
-		gameState := StateMessage{}
+		gameState := convertServerMessageToGameState(serverMessage)
 		out, err := json.Marshal(gameState)
 		if err != nil {
 			log.Println(err)

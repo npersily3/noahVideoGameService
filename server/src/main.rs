@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use std::net::UdpSocket;
+use std::ops::Deref;
 use std::thread;
 use std::thread::{JoinHandle, sleep, spawn};
 use std::time::Duration;
+use serde_json::json;
 //use serde_json::Result;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -13,12 +15,67 @@ struct ClientUDPMessage {
     inputBitmap: u8,
 }
 
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
 struct PlayerState {
     x: i32,
     y: i32,
 }
 
 
+#[derive(Clone, Serialize, Deserialize)]
+struct GameState {
+    players: std::collections::HashMap<u64, PlayerState>,
+}
+
+impl GameState {
+    fn new() -> Self {
+        GameState {
+            players: std::collections::HashMap::new(),
+        }
+    }
+}
+
+
+
+#[derive(Serialize, Deserialize)]
+struct ServerUDPMessage {
+    Request_number: u32,
+    State: GameState,
+}
+
+
+
+
+//
+fn handleClientMessage(client_udpmessage: ClientUDPMessage, game_state: &mut GameState) -> ServerUDPMessage {
+
+
+    {
+        let player_state = game_state.players.get_mut(&client_udpmessage.user_id).unwrap();
+
+        //w is pressed
+        if (client_udpmessage.inputBitmap & 1) == 1 {
+            player_state.y += 1;
+        }
+        if (client_udpmessage.inputBitmap & 2) == 1 {
+            player_state.x -= 1;
+        }
+        if (client_udpmessage.inputBitmap & 4) == 1 {
+            player_state.y -= 1;
+        }
+        if (client_udpmessage.inputBitmap & 8) == 1 {
+            player_state.x += 1;
+        }
+    }
+    let server_udp = ServerUDPMessage {
+        Request_number: client_udpmessage.request_number,
+        State: game_state.clone(),
+    };
+
+    server_udp
+
+}
 
 fn recvMessage() {
     let socket = UdpSocket::bind("127.0.0.1:34254").expect("Could not bind socket");
@@ -30,18 +87,25 @@ fn recvMessage() {
     let mut buf = [0; 100];
 
 
-    let player_states: HashMap<usize, PlayerState> = std::collections::HashMap::from([]);
+    let mut gameState = GameState::new();
+
     loop {
         match socket.recv_from(&mut buf) {
-            Ok((size, _src)) => {
-                println!("Received {} bytes from {:?}", size, _src);
+            Ok((size, src)) => {
+                println!("Received {} bytes from {:?}", size, src);
                 println!("{:?}", buf[..size].to_vec());
 
-                let message = serde_json::from_slice::<ClientUDPMessage>(&buf[..size]);
+                let message = serde_json::from_slice::<ClientUDPMessage>(&buf[..size]).unwrap();
                 //todo check if message is none
-                println!("{:?}", message);
 
-                socket.send_to(&buf[..size], &_src).expect("Could not send");
+                if (gameState.players.contains_key(&message.user_id) == false) {
+                    gameState.players.insert(message.user_id, PlayerState { x: 0, y: 0 });
+                }
+                let serverUDPMessage = handleClientMessage(message, &mut gameState);
+
+                let jsonMessage = serde_json::to_vec(&serverUDPMessage).expect("Could not serialize");
+
+                socket.send_to(&jsonMessage, &src).expect("Could not send");
             }
             Err(e) => {
                 println!("couldn't recieve from {:?}", e);
