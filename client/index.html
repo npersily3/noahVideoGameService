@@ -91,6 +91,14 @@
     ws.send(JSON.stringify({ type: 'input', keys }));
   }
 
+  // keep sending while keys are held so the player keeps moving
+  const SEND_INTERVAL = 50; // ms
+  setInterval(() => {
+    if (keys.w || keys.a || keys.s || keys.d) {
+      sendInput();
+    }
+  }, SEND_INTERVAL);
+
   function colorForId(id) {
     let hash = 0;
     for (let i = 0; i < id.length; i++) {
