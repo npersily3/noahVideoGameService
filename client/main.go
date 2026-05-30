@@ -45,13 +45,10 @@ func getClientUDPMessage(message InputMessage) ClientUDPMessage {
 }
 
 func convertServerMessageToGameState(serverMessage ServerUDPMessage) StateMessage {
-	var stateMessage StateMessage
-
-	stateMessage.Type = "state"
-
-	stateMessage = serverMessage.State
-
-	return stateMessage
+	return StateMessage{
+		Type:    "state",
+		Players: serverMessage.State.Players,
+	}
 }
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -76,7 +73,6 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var inputMessage InputMessage
-		var rawMessage []byte
 		var serverMessage ServerUDPMessage
 
 		err = json.Unmarshal(raw, &inputMessage)
@@ -86,35 +82,38 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		fmt.Printf("%+v\n", inputMessage)
+		//fmt.Printf("%+v\n", inputMessage)
 
 		//TODO, now I have the keystrokes in bools in message
 		udpMessage := getClientUDPMessage(inputMessage)
 
-		fmt.Printf("udP: %+v\n", udpMessage)
-
-		rawMessage, err = json.Marshal(udpMessage)
-
-		fmt.Printf("raw: %+v\n", rawMessage)
+		outgoing, err := json.Marshal(udpMessage)
 
 		if err != nil {
 			log.Println(err)
 			return
 		}
 
-		_, err = clientState.serverConn.Write(rawMessage)
+		_, err = clientState.serverConn.Write(outgoing)
 
 		if err != nil {
 			log.Println(err)
 			return
 		}
 
-		_, err = clientState.serverConn.Read(rawMessage)
+		buf := make([]byte, 1024)
+		n, err := clientState.serverConn.Read(buf)
 
-		err = json.Unmarshal(rawMessage, &serverMessage)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		err = json.Unmarshal(buf[:n], &serverMessage)
 
 		//TODO this nil state is how we send messages back to the frontend
 		gameState := convertServerMessageToGameState(serverMessage)
+
 		out, err := json.Marshal(gameState)
 		if err != nil {
 			log.Println(err)

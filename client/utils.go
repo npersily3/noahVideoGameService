@@ -31,7 +31,7 @@ type ClientUDPMessage struct {
 	//keep track of which input to send
 	Request_number uint32 `json:"request_number"`
 	//which input was sent, this is a bitmap so if I press w and s the map will look like 1010
-	User_input uint8 `json:"inputBitmap"`
+	User_input uint8 `json:"input_bitmap"`
 }
 
 type ServerUDPMessage struct {
