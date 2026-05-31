@@ -3,6 +3,8 @@ package main
 import (
 	"math/rand"
 	"net"
+
+	"github.com/gorilla/websocket"
 )
 
 // matches what the browser sends
@@ -40,9 +42,11 @@ type ServerUDPMessage struct {
 }
 
 type ClientState struct {
-	id         uint64
-	player     PlayerState
-	serverConn net.Conn
+	id           uint64
+	player       PlayerState
+	serverConn   net.Conn
+	upgrader     websocket.Upgrader
+	frontendConn *websocket.Conn
 }
 
 func (c *ClientState) initClientState() {

@@ -194,7 +194,7 @@ fn sender_thread(
                     state: local_game_state.clone(),
                 };
 
-            //    println!("Server UDP Request: {:?}", server_udp);
+                println!("Server UDP Request: {:?}", server_udp);
 
                 json_message = serde_json::to_vec(&server_udp).expect("Could not serialize");
             }

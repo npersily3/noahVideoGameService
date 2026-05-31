@@ -54,19 +54,21 @@ func convertServerMessageToGameState(serverMessage ServerUDPMessage) StateMessag
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	//upgrade http connection to websocket connection
-	frontendConn, err := upgrader.Upgrade(w, r, nil)
+	clientState.frontendConn, err = upgrader.Upgrade(w, r, nil)
 
 	if err != nil {
 		log.Println(err)
 		return
 	}
 
-	defer frontendConn.Close()
+	go updateServer()
+
+	defer clientState.frontendConn.Close()
 
 	//HandleWebsocket message
 
 	for {
-		_, raw, err := frontendConn.ReadMessage()
+		_, raw, err := clientState.frontendConn.ReadMessage()
 
 		if err != nil {
 			log.Println(err)
@@ -74,7 +76,6 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var inputMessage InputMessage
-		var serverMessage ServerUDPMessage
 
 		err = json.Unmarshal(raw, &inputMessage)
 
@@ -100,30 +101,6 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Println(err)
 			return
-		}
-
-		buf := make([]byte, 1024)
-		n, err := clientState.serverConn.Read(buf)
-
-		if err != nil {
-			log.Println(err)
-			return
-		}
-
-		err = json.Unmarshal(buf[:n], &serverMessage)
-
-		//TODO this nil state is how we send messages back to the frontend
-		gameState := convertServerMessageToGameState(serverMessage)
-
-		out, err := json.Marshal(gameState)
-		if err != nil {
-			log.Println(err)
-		}
-
-		err = frontendConn.WriteMessage(websocket.TextMessage, out)
-
-		if err != nil {
-			log.Println(err)
 		}
 
 	}
@@ -168,4 +145,37 @@ func main() {
 		fmt.Println(err)
 	}
 
+}
+
+func updateServer() {
+	for {
+
+		var serverMessage ServerUDPMessage
+
+		buf := make([]byte, 1024)
+		n, err := clientState.serverConn.Read(buf)
+
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		err = json.Unmarshal(buf[:n], &serverMessage)
+
+		fmt.Printf("Received message from server: %s\n", string(buf[:n]))
+		//TODO this nil state is how we send messages back to the frontend
+		gameState := convertServerMessageToGameState(serverMessage)
+		fmt.Printf("GameState: %v\n", gameState)
+
+		out, err := json.Marshal(gameState)
+		if err != nil {
+			log.Println(err)
+		}
+
+		err = clientState.frontendConn.WriteMessage(websocket.TextMessage, out)
+
+		if err != nil {
+			log.Println(err)
+		}
+	}
 }
