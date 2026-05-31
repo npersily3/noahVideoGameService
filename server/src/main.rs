@@ -94,7 +94,13 @@ fn recv_message(
     loop {
         match socket.recv_from(&mut buf) {
             Ok((size, src)) => {
-                let message = serde_json::from_slice::<ClientUDPMessage>(&buf[..size]).unwrap();
+                let message = match serde_json::from_slice::<ClientUDPMessage>(&buf[..size]) {
+                    Ok(message) => message,
+                    Err(e) => {
+                        println!("couldn't parse message from {src:?}: {e:?}");
+                        continue;
+                    }
+                };
 
                 // new scope to for rwLock on game state
                 {
@@ -161,9 +167,9 @@ fn main() {
 }
 
 
-//30 HZ
-const TICK_FREQUENCY: u64 = 30;
-const TICK_PERIOD: Duration = Duration::from_millis(1/TICK_FREQUENCY);
+// HZ
+const TICK_FREQUENCY: u64 = 60;
+const TICK_PERIOD: Duration = Duration::from_millis(1000/TICK_FREQUENCY);
 
 //on a fixed loop, send full gamestate to all users.
 // I need a user database that has their conn
@@ -176,7 +182,7 @@ fn sender_thread(
     loop {
         let starting_time  = Instant::now();
         {
-            let server_data = server_data.read().unwrap();
+
 
             let json_message;
 
@@ -188,13 +194,20 @@ fn sender_thread(
                     state: local_game_state.clone(),
                 };
 
+            //    println!("Server UDP Request: {:?}", server_udp);
+
                 json_message = serde_json::to_vec(&server_udp).expect("Could not serialize");
             }
 
-            for client in server_data.clients.values() {
-                socket
-                    .send_to(&json_message, client.socket)
-                    .expect("Could not send");
+            let server_data_local = server_data.read().unwrap();
+
+            for client in server_data_local.clients.values() {
+                if let Err(e) = socket.send_to(&json_message, client.socket) {
+                    println!("couldn't send to {:?}: {e:?}", client.socket);
+                    continue;
+                }
+
+               // println!("Sent udp message to client: {:?}", client.socket);
             }
 
         }
