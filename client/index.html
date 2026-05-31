@@ -31,7 +31,8 @@
 </head>
 <body>
 
-<canvas id="canvas" width="600" height="400"></canvas>
+<!-- Game window dimensions: 1200 (width) x 800 (height). Center = (600, 400) -->
+<canvas id="canvas" width="1200" height="800"></canvas>
 <div id="status" class="disconnected">disconnected</div>
 
 <script>
@@ -47,7 +48,10 @@
   let keys    = { w: false, a: false, s: false, d: false };
 
   function connect() {
-    ws = new WebSocket('ws://localhost:8080/ws');
+    // Connect to whatever host/port served this page, so each client
+    // instance (started with its own -port) just works.
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}/ws`);
 
     ws.onopen = () => {
       status.textContent = 'connected';

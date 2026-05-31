@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -151,13 +152,18 @@ func main() {
 
 	//println(string(buf[:n]))
 
+	port := flag.String("port", "8080", "HTTP port for this client to serve the game on")
+	flag.Parse()
+
+	addr := ":" + *port
+
 	http.HandleFunc("/ws", handleWebSocket)
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "index.html")
 	})
-	fmt.Println("WebSocket server is running on :8080/ws")
-	fmt.Println("http://localhost:8080")
-	err = http.ListenAndServe(":8080", nil)
+	fmt.Printf("WebSocket server is running on %s/ws\n", addr)
+	fmt.Printf("http://localhost:%s\n", *port)
+	err = http.ListenAndServe(addr, nil)
 	if err != nil {
 		fmt.Println(err)
 	}

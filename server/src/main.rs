@@ -109,7 +109,7 @@ fn recv_message(
                     if !local_game_state.players.contains_key(&message.user_id)   {
                         local_game_state
                             .players
-                            .insert(message.user_id, PlayerState { x: 0, y: 0 });
+                            .insert(message.user_id, PlayerState { x: 600, y:400 });
 
                         //now we have to lock and insert the address into global server data then we drop it after the scope
                         {
