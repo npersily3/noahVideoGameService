@@ -1,12 +1,10 @@
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::collections::HashMap;
 use std::net::{SocketAddr, UdpSocket};
-use std::ops::Deref;
+
 use std::sync::{Arc, RwLock, RwLockWriteGuard};
-use std::thread;
-use std::thread::{JoinHandle, sleep, spawn};
-use std::time::Duration;
+use std::thread::{sleep, spawn};
+use std::time::{Duration, Instant};
 //use serde_json::Result;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -24,13 +22,13 @@ struct PlayerState {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct GameState {
-    players: std::collections::HashMap<u64, PlayerState>,
+    players: HashMap<u64, PlayerState>,
 }
 
 impl GameState {
     fn new() -> Self {
         GameState {
-            players: std::collections::HashMap::new(),
+            players: HashMap::new(),
         }
     }
 }
@@ -45,18 +43,21 @@ struct ClientData {
     socket: SocketAddr,
 }
 struct ServerData {
-    clients: std::collections::HashMap<u64, ClientData>,
+    clients: HashMap<u64, ClientData>,
 }
 impl ServerData {
     fn new() -> Self {
         ServerData {
-            clients: std::collections::HashMap::new(),
+            clients: HashMap::new(),
         }
     }
 }
 
 //update gamestate based on client message`
-fn handleClientMessage(client_udpmessage: ClientUDPMessage, game_state: &mut RwLockWriteGuard<GameState>) {
+fn handle_client_message(
+    client_udpmessage: ClientUDPMessage,
+    game_state: &mut RwLockWriteGuard<GameState>,
+) {
     let player_state = game_state
         .players
         .get_mut(&client_udpmessage.user_id)
@@ -80,13 +81,15 @@ fn handleClientMessage(client_udpmessage: ClientUDPMessage, game_state: &mut RwL
     }
 }
 
-fn recvMessage(game_state: Arc<RwLock<GameState>>, server_data: Arc<RwLock<ServerData>>, socket: Arc<UdpSocket>) {
-
+fn recv_message(
+    game_state: Arc<RwLock<GameState>>,
+    server_data: Arc<RwLock<ServerData>>,
+    socket: Arc<UdpSocket>,
+) {
     // Receives a single datagram message on the socket. If `buf` is too small to hold
     // the message, it will be cut off.
 
     let mut buf = [0; 100];
-
 
     loop {
         match socket.recv_from(&mut buf) {
@@ -97,19 +100,21 @@ fn recvMessage(game_state: Arc<RwLock<GameState>>, server_data: Arc<RwLock<Serve
                 {
                     let mut local_game_state = game_state.write().unwrap();
 
-
-                    if (local_game_state.players.contains_key(&message.user_id) == false) {
-                        local_game_state.players.insert(message.user_id, PlayerState { x: 0, y: 0 });
+                    if !local_game_state.players.contains_key(&message.user_id)   {
+                        local_game_state
+                            .players
+                            .insert(message.user_id, PlayerState { x: 0, y: 0 });
 
                         //now we have to lock and insert the address into global server data then we drop it after the scope
                         {
                             let mut local_server_data = server_data.write().unwrap();
-                            local_server_data.clients.insert(message.user_id, ClientData { socket: src });
+                            local_server_data
+                                .clients
+                                .insert(message.user_id, ClientData { socket: src });
                         }
                     }
 
-
-                    handleClientMessage(message, &mut local_game_state);
+                    handle_client_message(message, &mut local_game_state);
                     //        println!("New Game State {:?}, ", serverUDPMessage);
                 }
             }
@@ -125,7 +130,7 @@ fn recvMessage(game_state: Arc<RwLock<GameState>>, server_data: Arc<RwLock<Serve
 fn main() {
     //this lets me use windbg JIT
     std::panic::set_hook(Box::new(|info| {
-        //  println!("Panic: {info}");
+        println!("Panic: {info}");
         unsafe {
             core::arch::asm!("int3");
         }
@@ -137,48 +142,66 @@ fn main() {
     let game_state = Arc::new(RwLock::new(GameState::new()));
     let socket = Arc::new(UdpSocket::bind("127.0.0.1:34254").expect("Could not bind socket"));
 
-
     let sd = server_data.clone();
     let gs = game_state.clone();
     let s = socket.clone();
 
-    let handle = spawn(move || recvMessage(gs, sd, s));
+    let handle = spawn(move || recv_message(gs, sd, s));
 
     handles.push(handle);
 
-    let handle = spawn(move || senderThread(game_state.clone(), server_data.clone(), socket.clone()));
+    let handle =
+        spawn(move || sender_thread(game_state.clone(), server_data.clone(), socket.clone()));
+
+    handles.push(handle);
 
     for handle in handles {
         handle.join().unwrap();
     }
 }
 
+
+//30 HZ
+const TICK_FREQUENCY: u64 = 30;
+const TICK_PERIOD: Duration = Duration::from_millis(1/TICK_FREQUENCY);
+
 //on a fixed loop, send full gamestate to all users.
 // I need a user database that has their conn
-fn senderThread(game_state: Arc<RwLock<GameState>>, server_data: Arc<RwLock<ServerData>>, socket: Arc<UdpSocket>) {
-
+fn sender_thread(
+    game_state: Arc<RwLock<GameState>>,
+    server_data: Arc<RwLock<ServerData>>,
+    socket: Arc<UdpSocket>,
+) {
     //figure out a way
     loop {
+        let starting_time  = Instant::now();
         {
             let server_data = server_data.read().unwrap();
 
-            let mut jsonMessage = Vec::new();
+            let json_message;
 
             //lock and make
             {
                 let local_game_state = game_state.read().unwrap();
-                let serverUDp = ServerUDPMessage {
+                let server_udp = ServerUDPMessage {
                     request_number: 0,
                     state: local_game_state.clone(),
                 };
 
-                jsonMessage = serde_json::to_vec(&serverUDp).expect("Could not serialize");
+                json_message = serde_json::to_vec(&server_udp).expect("Could not serialize");
             }
 
             for client in server_data.clients.values() {
-                socket.send_to(&jsonMessage, &client.socket).expect("Could not send");
+                socket
+                    .send_to(&json_message, client.socket)
+                    .expect("Could not send");
             }
+
+        }
+        let delta_time = starting_time.elapsed();
+        if delta_time < TICK_PERIOD {
+            sleep(TICK_PERIOD - delta_time);
         }
     }
-    // basic way to send out  info
+
 }
