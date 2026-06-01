@@ -47,6 +47,7 @@ type ClientState struct {
 	serverConn   net.Conn
 	upgrader     websocket.Upgrader
 	frontendConn *websocket.Conn
+	inputChannel chan InputMessage
 }
 
 func (c *ClientState) initClientState() {
@@ -61,4 +62,6 @@ func (c *ClientState) initClientState() {
 	if err != nil {
 		panic(err)
 	}
+
+	c.inputChannel = make(chan InputMessage, 16)
 }

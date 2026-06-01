@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -52,6 +53,47 @@ func convertServerMessageToGameState(serverMessage ServerUDPMessage) StateMessag
 	}
 }
 
+// in HZ
+const INPUT_FREQUENCY = 60
+
+// this function sends stuff to the server every tick, if there is no tick, it reads the keys
+func sendToServerLoop() {
+
+	ticker := time.NewTicker(time.Second / INPUT_FREQUENCY)
+
+	defer ticker.Stop()
+
+	var lastInputMessage InputMessage
+	for {
+
+		// non-blocking wait
+		select {
+
+		//if there is a new button press, buffer it
+		case inputKeys := <-clientState.inputChannel:
+			lastInputMessage = inputKeys
+
+		// if the time is up, send it to the server
+		case <-ticker.C:
+			udpMessage := getClientUDPMessage(lastInputMessage)
+
+			outgoing, err := json.Marshal(udpMessage)
+
+			if err != nil {
+				log.Println(err)
+				return
+			}
+
+			_, err = clientState.serverConn.Write(outgoing)
+
+			if err != nil {
+				log.Println(err)
+				return
+			}
+		}
+	}
+}
+
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	//upgrade http connection to websocket connection
 	clientState.frontendConn, err = upgrader.Upgrade(w, r, nil)
@@ -60,12 +102,10 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		log.Println(err)
 		return
 	}
-
-	go updateServer()
-
 	defer clientState.frontendConn.Close()
 
-	//HandleWebsocket message
+	go updateServer()
+	go sendToServerLoop()
 
 	for {
 		_, raw, err := clientState.frontendConn.ReadMessage()
@@ -84,27 +124,8 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		//fmt.Printf("%+v\n", inputMessage)
-
-		//TODO, now I have the keystrokes in bools in message
-		udpMessage := getClientUDPMessage(inputMessage)
-
-		outgoing, err := json.Marshal(udpMessage)
-
-		if err != nil {
-			log.Println(err)
-			return
-		}
-
-		_, err = clientState.serverConn.Write(outgoing)
-
-		if err != nil {
-			log.Println(err)
-			return
-		}
-
+		clientState.inputChannel <- inputMessage
 	}
-
 }
 
 var err error
@@ -162,10 +183,10 @@ func updateServer() {
 
 		err = json.Unmarshal(buf[:n], &serverMessage)
 
-		fmt.Printf("Received message from server: %s\n", string(buf[:n]))
+		//	fmt.Printf("Received message from server: %s\n", string(buf[:n]))
 		//TODO this nil state is how we send messages back to the frontend
 		gameState := convertServerMessageToGameState(serverMessage)
-		fmt.Printf("GameState: %v\n", gameState)
+		//fmt.Printf("GameState: %v\n", gameState)
 
 		out, err := json.Marshal(gameState)
 		if err != nil {
