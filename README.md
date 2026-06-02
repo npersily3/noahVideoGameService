@@ -84,6 +84,16 @@ go build -o client.exe .
 Then open <http://localhost:8080>, click the canvas, and move your dot with `WASD`.
 Open more tabs (or run more clients) to see multiple players share the same world.
 
+### Docker 
+The server can be containerized like so
+
+```powershell
+cd server
+docker build -t noah_game_server:[tag] .
+docker run -d -p 34254:34254/udp noah_game_server:latest
+```
+
+
 ---
 
 ## Roadmap
