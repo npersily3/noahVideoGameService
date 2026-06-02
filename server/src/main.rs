@@ -160,7 +160,13 @@ fn main() {
     let mut handles = Vec::new();
 
     let game_state = Arc::new(Mutex::new(GameState::new()));
-    let socket = Arc::new(UdpSocket::bind("127.0.0.1:34254").expect("Could not bind socket"));
+
+
+   #[cfg(not(feature = "container"))]
+    let socket = Arc::new(UdpSocket::bind("0.0.0.0:34254").expect("Could not bind socket"));
+
+    #[cfg(feature = "container")]
+    let socket = Arc::new(UdpSocket::bind("0.0.0.0:34254").expect("Could not bind socket"));
 
     let gs = game_state.clone();
     let s = socket.clone();
