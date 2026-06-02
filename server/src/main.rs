@@ -2,111 +2,98 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::{SocketAddr, UdpSocket};
 
-use std::sync::{Arc, RwLock, RwLockWriteGuard};
+use std::sync::{Arc, Mutex};
 use std::thread::{sleep, spawn};
 use std::time::{Duration, Instant};
 //use serde_json::Result;
 
+// ---------------------------------------------------------------------------
+// Wire types — what actually goes over the socket. Keep these separate from the
+// stored types below so connection data (addresses, sequence numbers) can never
+// leak into a broadcast and we only serialize the bytes we mean to send.
+// ---------------------------------------------------------------------------
 
-
-
-//Types that are read over the wire
 #[derive(Serialize, Deserialize, Debug)]
 struct ClientUDPMessage {
     user_id: u64,
     request_number: u32,
     input_bitmap: u8,
 }
-#[derive(Serialize, Deserialize, Debug)]
-struct ServerUDPMessage {
-    request_number: u32,
-    state: GameState,
+
+// Public, per-player view that is safe to broadcast to everyone.
+#[derive(Serialize, Debug)]
+struct PlayerSnapshot {
+    x: i32,
+    y: i32,
 }
 
+// The world as seen on the wire. Same JSON shape as before
+// (`{ "players": { "<id>": { "x", "y" } } }`) so the Go client is unchanged.
+#[derive(Serialize, Debug)]
+struct WorldSnapshot {
+    players: HashMap<u64, PlayerSnapshot>,
+}
 
+#[derive(Serialize, Debug)]
+struct ServerUDPMessage {
+    request_number: u32,
+    state: WorldSnapshot,
+}
 
+// ---------------------------------------------------------------------------
+// Stored types — the authoritative server state. A single map keyed by user_id
+// holds both the simulation state and the connection bookkeeping, so there is
+// one lock and no cross-map lock ordering to maintain. None of this is
+// serialized directly; the sender projects it into the wire types above.
+// ---------------------------------------------------------------------------
 
-// player state, soon to add position position and other stuff
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Debug)]
 struct PlayerState {
     x: i32,
     y: i32,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Debug)]
+struct Client {
+    state: PlayerState,
+    socket: SocketAddr,
+    last_received_state: u32,
+}
+
+#[derive(Debug)]
 struct GameState {
-    players: HashMap<u64, PlayerState>,
+    clients: HashMap<u64, Client>,
 }
 
 impl GameState {
     fn new() -> Self {
         GameState {
-            players: HashMap::new(),
-        }
-    }
-}
-
-
-
-
-// Types only the server knows about
-struct ClientData {
-    socket: SocketAddr,
-    last_received_state: u32
-}
-struct ServerData {
-    clients: HashMap<u64, ClientData>,
-}
-impl ServerData {
-    fn new() -> Self {
-        ServerData {
             clients: HashMap::new(),
         }
     }
 }
 
-//update gamestate based on client message`
-fn handle_client_message(
-    client_udpmessage: ClientUDPMessage,
-    game_state: &mut RwLockWriteGuard<GameState>,
-) {
-    let player_state = game_state
-        .players
-        .get_mut(&client_udpmessage.user_id)
-        .unwrap();
-
-    //TODO chuck it if it is an old request/update the request number
-    // make sure to also chuck duplicates
-    //if(client_udpmessage.request_number < )
-
-
-
-
+// Apply a single input bitmap to one player's position.
+fn apply_input(player: &mut PlayerState, input_bitmap: u8) {
     //w is pressed
-    if (client_udpmessage.input_bitmap & 1) != 0 {
-        player_state.y -= 1;
+    if (input_bitmap & 1) != 0 {
+        player.y -= 1;
     }
     //a
-    if (client_udpmessage.input_bitmap & 2) != 0 {
-        player_state.x -= 1;
+    if (input_bitmap & 2) != 0 {
+        player.x -= 1;
     }
     //s
-    if (client_udpmessage.input_bitmap & 4) != 0 {
-        player_state.y += 1;
+    if (input_bitmap & 4) != 0 {
+        player.y += 1;
     }
     //d
-    if (client_udpmessage.input_bitmap & 8) != 0 {
-        player_state.x += 1;
+    if (input_bitmap & 8) != 0 {
+        player.x += 1;
     }
 }
 
-
-// this functions just updates the world after pulling inputs off the wire
-fn recv_message(
-    game_state: Arc<RwLock<GameState>>,
-    server_data: Arc<RwLock<ServerData>>,
-    socket: Arc<UdpSocket>,
-) {
+fn recv_message(game_state: Arc<Mutex<GameState>>, socket: Arc<UdpSocket>) {
     // Receives a single datagram message on the socket. If `buf` is too small to hold
     // the message, it will be cut off.
 
@@ -114,11 +101,8 @@ fn recv_message(
 
     loop {
         match socket.recv_from(&mut buf) {
-
-            // if we succesfully recieved the packet
             Ok((size, src)) => {
-
-                // convert it from a json to our matching struct
+                // Invalid packets are rejected here, before we ever take the lock.
                 let message = match serde_json::from_slice::<ClientUDPMessage>(&buf[..size]) {
                     Ok(message) => message,
                     Err(e) => {
@@ -127,40 +111,45 @@ fn recv_message(
                     }
                 };
 
-                // new scope to for rwLock on game state
-                //TODO this is a complicated thing, I need to maintain lock ordering while making sure handle client message gets both things
-                // i think the answer is to first read lock the server data, then write if neccesary, then lock the game state for the right,
-                // really this whole locking thing does not matter that much because I really have one thread
-                {
-                    let mut local_game_state = game_state.write().unwrap();
+                let mut state = game_state.lock().unwrap();
 
-                    if !local_game_state.players.contains_key(&message.user_id)   {
-                        local_game_state.players.insert(message.user_id, PlayerState { x: 600, y:400 });
-
-                        //now we have to lock and insert the address into global server data then we drop it after the scope
-                        {
-                            let mut local_server_data = server_data.write().unwrap();
-                            local_server_data
-                                .clients
-                                .insert(message.user_id, ClientData { socket: src, last_received_state: 0 });
-                        }
-                    }
-
-                    handle_client_message(message, &mut local_game_state);
-                    //        println!("New Game State {:?}, ", serverUDPMessage);
+                // First time we've seen this user: spawn them at the center and seed
+                // last_received_state with this packet's number so the very first
+                // input still counts (and later packets must be strictly newer).
+                let is_new = !state.clients.contains_key(&message.user_id);
+                if is_new {
+                    state.clients.insert(
+                        message.user_id,
+                        Client {
+                            state: PlayerState { x: 600, y: 400 },
+                            socket: src,
+                            last_received_state: message.request_number,
+                        },
+                    );
                 }
+
+                let client = state.clients.get_mut(&message.user_id).unwrap();
+
+                if !is_new {
+                    // Basic sequencing (goal #6): drop stale or duplicate packets.
+                    // NOTE: no u32 wraparound handling yet — fine until ~2 years at 60Hz.
+                    if message.request_number <= client.last_received_state {
+                        continue;
+                    }
+                    client.last_received_state = message.request_number;
+                }
+
+                apply_input(&mut client.state, message.input_bitmap);
             }
             Err(e) => {
                 println!("couldn't recieve from {:?}", e);
             }
         }
     }
-
-    // println!("Received {} bytes from {:?}", size, add);
 }
 
 fn main() {
-    //this lets me use windbg JIT, not neccesary for users
+    //this lets me use windbg JIT
     std::panic::set_hook(Box::new(|info| {
         println!("Panic: {info}");
         unsafe {
@@ -170,78 +159,78 @@ fn main() {
 
     let mut handles = Vec::new();
 
-    // We need arc rwlocks because multiple people own and read write from these two data sources
-    //The lock order is server data then game state, which I think intuitively makes sense
-    let server_data = Arc::new(RwLock::new(ServerData::new()));
-    let game_state = Arc::new(RwLock::new(GameState::new()));
+    let game_state = Arc::new(Mutex::new(GameState::new()));
     let socket = Arc::new(UdpSocket::bind("127.0.0.1:34254").expect("Could not bind socket"));
 
-    let sd = server_data.clone();
     let gs = game_state.clone();
     let s = socket.clone();
+    handles.push(spawn(move || recv_message(gs, s)));
 
-
-    let handle = spawn(move || recv_message(gs, sd, s));
-    handles.push(handle);
-
-    let handle =
-        spawn(move || sender_thread(game_state.clone(), server_data.clone(), socket.clone()));
-
-    handles.push(handle);
+    let gs = game_state.clone();
+    let s = socket.clone();
+    handles.push(spawn(move || sender_thread(gs, s)));
 
     for handle in handles {
         handle.join().unwrap();
     }
 }
 
-
 // HZ
 const TICK_FREQUENCY: u64 = 60;
-const TICK_PERIOD: Duration = Duration::from_millis(1000/TICK_FREQUENCY);
+const TICK_PERIOD: Duration = Duration::from_millis(1000 / TICK_FREQUENCY);
 
-// This function sends the game state to all users.
-fn sender_thread(
-    game_state: Arc<RwLock<GameState>>,
-    server_data: Arc<RwLock<ServerData>>,
-    socket: Arc<UdpSocket>,
-) {
-    //figure out a way
+//on a fixed loop, send full gamestate to all users.
+fn sender_thread(game_state: Arc<Mutex<GameState>>, socket: Arc<UdpSocket>) {
+    // Monotonic snapshot number so clients can sequence the state they receive.
+    let mut tick: u32 = 0;
+
     loop {
-        let starting_time  = Instant::now();
-        {
-            let json_message;
+        let starting_time = Instant::now();
 
-            //lock the game state and convert it to a local json so the game can be updated, but all the other users will get the same game
-            {
-                let local_game_state = game_state.read().unwrap();
-                let server_udp = ServerUDPMessage {
-                    request_number: 0,
-                    state: local_game_state.clone(),
-                };
+        // Build the wire snapshot and collect the target addresses while holding
+        // the lock, then release it *before* doing any blocking network sends so
+        // recv_message isn't stalled for the whole broadcast.
+        let (bytes, targets) = {
+            let state = game_state.lock().unwrap();
 
-               // println!("Server UDP Request: {:?}", server_udp);
+            // we know the length, so we can build the hashmap
+            let mut players = HashMap::with_capacity(state.clients.len());
+            let mut targets = Vec::with_capacity(state.clients.len());
 
-                json_message = serde_json::to_vec(&server_udp).expect("Could not serialize");
+
+            for (&id, client) in state.clients.iter() {
+                // Projection: only x/y reach the wire — socket and
+                // last_received_state stay on the server.
+                players.insert(
+                    id,
+                    PlayerSnapshot {
+                        x: client.state.x,
+                        y: client.state.y,
+                    },
+                );
+                targets.push(client.socket);
             }
 
-            // now that we have the game state, we send it to everybody
-            let server_data_local = server_data.read().unwrap();
+            let message = ServerUDPMessage {
+                request_number: tick,
+                state: WorldSnapshot { players },
+            };
 
-            for client in server_data_local.clients.values() {
-                if let Err(e) = socket.send_to(&json_message, client.socket) {
-                    println!("couldn't send to {:?}: {e:?}", client.socket);
-                    continue;
-                }
+            let bytes = serde_json::to_vec(&message).expect("Could not serialize snapshot");
+            (bytes, targets)
+        };
 
-               // println!("Sent udp message to client: {:?}", client.socket);
+        for addr in &targets {
+            if let Err(e) = socket.send_to(&bytes, addr) {
+                println!("couldn't send to {addr:?}: {e:?}");
             }
-
         }
-        // wait until the current tick is over,
+
+        tick = tick.wrapping_add(1);
+
         let delta_time = starting_time.elapsed();
         if delta_time < TICK_PERIOD {
             sleep(TICK_PERIOD - delta_time);
         }
     }
-
 }
