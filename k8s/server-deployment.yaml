@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: noah-server
+  name: noah-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: noah-server
+  strategy: {}
+  template:
+    metadata:
+      labels:
+        app: noah-server
+    spec:
+      containers:
+        - image: noah_game_server:latest
+          name: noah-server
+          resources: {}
+status: {}

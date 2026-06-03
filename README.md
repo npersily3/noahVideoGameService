@@ -98,8 +98,7 @@ docker run -d -p 34254:34254/udp noah_game_server:latest
 
 ## Roadmap
 
-The project is built in phases. Each phase has reading attached so the concepts are
-learned alongside the code. **Currently finishing Phase 2.**
+The project is built in phases. **Currently finishing Phase 2.**
 
 ### Phase 1 — Local UDP Server ✅
 *No Kubernetes yet.*
@@ -108,31 +107,22 @@ learned alongside the code. **Currently finishing Phase 2.**
 3. Multiple clients can connect and their positions are broadcast every tick
 4. A Go test client that connects, sends inputs, and renders received state
 
-### Phase 2 — Authoritative Server ⬅ *almost done*
-**Reading:** Building a Game Network Protocol (Glenn Fiedler) · Source Multiplayer
-Networking (Valve wiki) · Latency Compensating Methods (Bernier, Valve)
+### Phase 2 — Authoritative Server
 5. Clients send inputs only — the server owns all state
 6. Packets are sequenced and selectively reliable
 
-### Phase 3 — Single Pod on Kubernetes
-**Reading:** Docker Getting Started · Kubernetes the Hard Way (Kelsey Hightower) ·
-Kubernetes Concepts (Pods, Services, Deployments, ConfigMaps) · Agones Architecture
-Overview · Agones Quickstart
+### Phase 3 — Single Pod on Kubernetes *(I am here)*
 7. The server runs in a single Kubernetes pod and is reachable over UDP
 8. Kubernetes knows when the pod is healthy and when it is not
 9. The pod moves through the Agones GameServer lifecycle correctly
 
 ### Phase 4 — Load Testing and Baselines
-**Reading:** Prometheus Getting Started · USE Method (Brendan Gregg)
 10. A bot swarm generates realistic, reproducible load against the server
-11. Metrics are visible for tick rate stability, memory, and bandwidth per client
-12. Baselines are recorded — every future optimization is measured against these
+11. Change game to be more of a shooter
+12. Metrics are visible for tick rate stability, memory, and bandwidth per client. Baselines are recorded — every future optimization is measured against these
 
 ### Phase 5 — Netcode Optimizations
 *Apply one at a time. Measure before and after each.*
-**Reading:** Tokio Tutorial · Async Rust Book · Snapshot Compression (Gaffer On
-Games) · State Synchronization (Gaffer On Games) · Overwatch Gameplay Architecture
-and Netcode (GDC 2017, Timothy Ford) · Valve Lag Compensation Wiki
 13. The server can rewind state to compensate for lag *(moved here from Phase 2)*
 14. Clients predict their own movement without waiting for the server
 15. Remote entity positions are smooth between server snapshots
@@ -149,6 +139,39 @@ and Netcode (GDC 2017, Timothy Ford) · Valve Lag Compensation Wiki
 22. Active sessions survive rolling deployments and pod evictions
 23. Players connect to the nearest geographic cluster
 24. Final bot swarm run is benchmarked against Phase 4 baselines
+
+### Phase 8 — Custom Agones Service
+25. A custom agones like service specific to my game
+---
+
+## Resources
+
+References used throughout the project, organized by the phase where they were most relevant.
+
+**Phase 2 — Authoritative Netcode**
+- [Building a Game Network Protocol](https://gafferongames.com/post/reading_packet_data/) — Glenn Fiedler (Gaffer On Games)
+- [Source Multiplayer Networking](https://developer.valvesoftware.com/wiki/Source_Multiplayer_Networking) — Valve Developer Wiki
+- [Latency Compensating Methods in Client/Server In-game Protocol Design and Optimization](https://developer.valvesoftware.com/wiki/Latency_Compensating_Methods_in_Client/Server_In-game_Protocol_Design_and_Optimization) — Yahn Bernier, Valve
+
+**Phase 3 — Kubernetes & Agones**
+- [Docker Getting Started](https://docs.docker.com/get-started/)
+- [Kubernetes the Hard Way](https://github.com/kelseyhightower/kubernetes-the-hard-way) — Kelsey Hightower
+- [Kubernetes Concepts](https://kubernetes.io/docs/concepts/) — Pods, Services, Deployments, ConfigMaps
+- [Agones Architecture Overview](https://agones.dev/site/docs/concepts/architecture/)
+- [Agones Quickstart](https://agones.dev/site/docs/getting-started/create-gameserver/)
+
+**Phase 4 — Observability**
+- [Prometheus Getting Started](https://prometheus.io/docs/introduction/overview/)
+- [The USE Method](https://www.brendangregg.com/usemethod.html) — Brendan Gregg
+
+**Phase 5 — Netcode Optimizations**
+- [Tokio Tutorial](https://tokio.rs/tokio/tutorial)
+- [Async Rust Book](https://rust-lang.github.io/async-book/)
+- [Snapshot Compression](https://gafferongames.com/post/snapshot_compression/) — Gaffer On Games
+- [State Synchronization](https://gafferongames.com/post/state_synchronization/) — Gaffer On Games
+- [Overwatch Gameplay Architecture and Netcode](https://www.youtube.com/watch?v=W3aieHjyNvw) — Timothy Ford, GDC 2017
+- [Lag Compensation](https://developer.valvesoftware.com/wiki/Lag_Compensation) — Valve Developer Wiki
+
 
 ---
 
