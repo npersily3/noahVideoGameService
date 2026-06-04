@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::{SocketAddr, UdpSocket};
-
-use std::sync::{Arc, Mutex};
+use tokio;
+use std::sync::{Arc, Barrier, Mutex};
 use std::thread::{sleep, spawn};
 use std::time::{Duration, Instant};
 //use serde_json::Result;
@@ -93,11 +93,12 @@ fn apply_input(player: &mut PlayerState, input_bitmap: u8) {
     }
 }
 
-fn recv_message(game_state: Arc<Mutex<GameState>>, socket: Arc<UdpSocket>) {
+fn recv_message(game_state: Arc<Mutex<GameState>>, socket: Arc<UdpSocket>, barrier: Arc<Barrier>) {
     // Receives a single datagram message on the socket. If `buf` is too small to hold
     // the message, it will be cut off.
 
     let mut buf = [0; 100];
+    barrier.wait();
 
     loop {
         match socket.recv_from(&mut buf) {
@@ -148,6 +149,30 @@ fn recv_message(game_state: Arc<Mutex<GameState>>, socket: Arc<UdpSocket>) {
     }
 }
 
+fn agones_sdk(barrier: Arc<Barrier>) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
+
+
+    rt.block_on(async {
+        let mut sdk = agones::Sdk::new(None, None).await.unwrap();
+
+        barrier.wait();
+        sdk.ready().await.unwrap();
+
+        loop {
+            let health = sdk.health_check();
+            if health.send(()).await.is_err() {
+                eprintln!("the health receiver was closed");
+            }
+
+            sleep(Duration::from_secs(5))
+        }
+
+
+    });
+}
+
 fn main() {
     //this lets me use windbg JIT
     std::panic::set_hook(Box::new(|info| {
@@ -159,6 +184,7 @@ fn main() {
 
     let mut handles = Vec::new();
 
+    let barrier = Arc::new(Barrier::new(3));
     let game_state = Arc::new(Mutex::new(GameState::new()));
 
 
@@ -170,11 +196,16 @@ fn main() {
 
     let gs = game_state.clone();
     let s = socket.clone();
-    handles.push(spawn(move || recv_message(gs, s)));
+    let b = barrier.clone();
+    handles.push(spawn(move || recv_message(gs, s, b)));
 
     let gs = game_state.clone();
     let s = socket.clone();
-    handles.push(spawn(move || sender_thread(gs, s)));
+    let b = barrier.clone();
+    handles.push(spawn(move || sender_thread(gs, s, b)));
+
+
+    spawn(move || {agones_sdk(barrier);});
 
     for handle in handles {
         handle.join().unwrap();
@@ -186,9 +217,11 @@ const TICK_FREQUENCY: u64 = 60;
 const TICK_PERIOD: Duration = Duration::from_millis(1000 / TICK_FREQUENCY);
 
 //on a fixed loop, send full gamestate to all users.
-fn sender_thread(game_state: Arc<Mutex<GameState>>, socket: Arc<UdpSocket>) {
+fn sender_thread(game_state: Arc<Mutex<GameState>>, socket: Arc<UdpSocket>, barrier: Arc<Barrier>) {
     // Monotonic snapshot number so clients can sequence the state they receive.
     let mut tick: u32 = 0;
+
+    barrier.wait();
 
     loop {
         let starting_time = Instant::now();
