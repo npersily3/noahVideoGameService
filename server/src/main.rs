@@ -166,7 +166,7 @@ fn agones_sdk(barrier: Arc<Barrier>) {
                 eprintln!("the health receiver was closed");
             }
 
-            sleep(Duration::from_secs(5))
+            sleep(Duration::from_secs(3))
         }
 
 
