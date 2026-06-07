@@ -50,6 +50,8 @@ type ClientState struct {
 	inputChannel chan InputMessage
 }
 
+const address = "127.0.0.1:7165"
+
 func (c *ClientState) initClientState() {
 	c.player = PlayerState{
 		X: 0,
@@ -57,7 +59,7 @@ func (c *ClientState) initClientState() {
 	}
 	c.id = rand.Uint64()
 
-	c.serverConn, err = net.Dial("udp", "127.0.0.1:34254")
+	c.serverConn, err = net.Dial("udp", address)
 
 	if err != nil {
 		panic(err)

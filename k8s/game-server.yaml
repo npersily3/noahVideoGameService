@@ -23,13 +23,13 @@ spec:
       # - "Passthrough" dynamically sets the `containerPort` to the same value as the dynamically selected hostPort.
       #      This will mean that users will need to lookup what port has been opened through the server side SDK.
       # - "None" means the `hostPort` is ignored and if defined, the `containerPort` (optional) is used to set the port on the GameServer instance.
-      portPolicy: Dynamic
+      portPolicy: Static
       # The name of the container to open the port on. Defaults to the game server container if omitted or empty.
       #container: simple-game-server
       # the port that is being opened on the game server process
       containerPort: 34254
       # the port exposed on the host, only required when `portPolicy` is "Static". Overwritten when portPolicy is "Dynamic".
-      hostPort: 7777
+      hostPort: 7165
       # protocol being used. Defaults to UDP. TCP and TCPUDP are other options
       # - "UDP" (default) use the UDP protocol
       # - "TCP", use the TCP protocol
@@ -100,7 +100,7 @@ spec:
       containers:
         - name: noah-game-server
           image:  noah-game-server:latest
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
       # nodeSelector is a label that can be used to tell Kubernetes which host
       # OS to use. For Windows game servers uncomment the nodeSelector
       # definition below.
