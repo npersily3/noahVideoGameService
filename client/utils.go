@@ -31,7 +31,7 @@ type StateMessage struct {
 	Players map[string]PlayerState `json:"players"`
 }
 type PlayerState struct {
-c	X      float64 `json:"x"`
+	X      float64 `json:"x"`
 	Y      float64 `json:"y"`
 	Health int32   `json:"health"`
 	Angle  float64 `json:"angle"`

@@ -42,6 +42,7 @@ func getClientUDPMessage(message InputMessage) ClientUDPMessage {
 
 	udp.UserID = clientState.id
 	udp.User_input = bitmap
+	udp.LeftClick, udp.MouseX, udp.MouseY = message.LeftClick, message.MousePosition.X, message.MousePosition.Y
 
 	return udp
 }
@@ -104,7 +105,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	defer clientState.frontendConn.Close()
 
-	go updateServer()
+	go updateFrontend()
 	go sendToServerLoop()
 
 	for {
@@ -168,7 +169,7 @@ func main() {
 
 }
 
-func updateServer() {
+func updateFrontend() {
 	for {
 
 		var serverMessage ServerUDPMessage

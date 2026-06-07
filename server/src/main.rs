@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::{SocketAddr, UdpSocket};
 use tokio;
-use std::sync::{Arc, Barrier, Mutex};
+use std::sync::{Arc, Barrier, Mutex, MutexGuard};
 use std::thread::{sleep, spawn};
 use std::time::{Duration, Instant};
 //use serde_json::Result;
@@ -18,20 +18,16 @@ struct ClientUDPMessage {
     user_id: u64,
     request_number: u32,
     input_bitmap: u8,
-}
-
-// Public, per-player view that is safe to broadcast to everyone.
-#[derive(Serialize, Debug)]
-struct PlayerSnapshot {
-    x: i32,
-    y: i32,
+    left_clickL: bool,
+    mouse_x: u32,
+    mouse_y: u32,
 }
 
 // The world as seen on the wire. Same JSON shape as before
 // (`{ "players": { "<id>": { "x", "y" } } }`) so the Go client is unchanged.
 #[derive(Serialize, Debug)]
 struct WorldSnapshot {
-    players: HashMap<u64, PlayerSnapshot>,
+    players: HashMap<u64, PlayerState>,
 }
 
 #[derive(Serialize, Debug)]
@@ -47,10 +43,12 @@ struct ServerUDPMessage {
 // serialized directly; the sender projects it into the wire types above.
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Serialize, Debug)]
 struct PlayerState {
     x: i32,
     y: i32,
+    angle: f64,
+    health: i8,
 }
 
 #[derive(Debug)]
@@ -73,23 +71,23 @@ impl GameState {
     }
 }
 
-// Apply a single input bitmap to one player's position.
-fn apply_input(player: &mut PlayerState, input_bitmap: u8) {
-    //w is pressed
-    if (input_bitmap & 1) != 0 {
-        player.y -= 1;
-    }
-    //a
-    if (input_bitmap & 2) != 0 {
-        player.x -= 1;
-    }
-    //s
-    if (input_bitmap & 4) != 0 {
-        player.y += 1;
-    }
-    //d
-    if (input_bitmap & 8) != 0 {
-        player.x += 1;
+// Apply a single input bitmap to one player's position and facing angle.
+fn apply_input(mut game_state: MutexGuard<GameState>, input_bitmap: u8, id: u64, mouse_x: u32, mouse_y: u32) {
+    {
+        if let Some(client) = game_state.clients.get_mut(&id) {
+            if (input_bitmap & 1) != 0 { client.state.y -= 1; }
+            if (input_bitmap & 2) != 0 { client.state.x -= 1; }
+            if (input_bitmap & 4) != 0 { client.state.y += 1; }
+            if (input_bitmap & 8) != 0 { client.state.x += 1; }
+
+            let dy = mouse_y as f64 - client.state.y as f64;
+            let dx = mouse_x as f64 - client.state.x as f64;
+            client.state.angle = dy.atan2(dx);
+        }
+    } // &mut client dies here
+
+    for (&other_id, other_client) in game_state.clients.iter() {
+        // hit detection against other players
     }
 }
 
@@ -122,25 +120,27 @@ fn recv_message(game_state: Arc<Mutex<GameState>>, socket: Arc<UdpSocket>, barri
                     state.clients.insert(
                         message.user_id,
                         Client {
-                            state: PlayerState { x: 600, y: 400 },
+                            state: PlayerState { x: 600, y: 400, angle: 0.0, health: 100 },
                             socket: src,
                             last_received_state: message.request_number,
                         },
                     );
                 }
 
-                let client = state.clients.get_mut(&message.user_id).unwrap();
+                {
+                    let client = state.clients.get_mut(&message.user_id).unwrap();
 
-                if !is_new {
-                    // Basic sequencing (goal #6): drop stale or duplicate packets.
-                    // NOTE: no u32 wraparound handling yet — fine until ~2 years at 60Hz.
-                    if message.request_number <= client.last_received_state {
-                        continue;
+                    if !is_new {
+                        // Basic sequencing (goal #6): drop stale or duplicate packets.
+                        // NOTE: no u32 wraparound handling yet — fine until ~2 years at 60Hz.
+                        if message.request_number <= client.last_received_state {
+                            continue;
+                        }
+                        client.last_received_state = message.request_number;
                     }
-                    client.last_received_state = message.request_number;
                 }
 
-                apply_input(&mut client.state, message.input_bitmap);
+                apply_input(state, message.input_bitmap, message.user_id, message.mouse_x, message.mouse_y);
             }
             Err(e) => {
                 println!("couldn't recieve from {:?}", e);
@@ -240,13 +240,7 @@ fn sender_thread(game_state: Arc<Mutex<GameState>>, socket: Arc<UdpSocket>, barr
             for (&id, client) in state.clients.iter() {
                 // Projection: only x/y reach the wire — socket and
                 // last_received_state stay on the server.
-                players.insert(
-                    id,
-                    PlayerSnapshot {
-                        x: client.state.x,
-                        y: client.state.y,
-                    },
-                );
+                players.insert(id, client.state.clone());
                 targets.push(client.socket);
             }
 
