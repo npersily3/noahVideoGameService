@@ -15,3 +15,5 @@ tokio = { version = "1.52.3", features = ["rt-multi-thread"] }
 
 default = []
 container = []
+# k8s pulls in everything `container` does, plus the Agones SDK lifecycle thread.
+k8s = ["container"]

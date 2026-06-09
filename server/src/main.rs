@@ -131,6 +131,7 @@ fn recv_message(
     loop {
         match socket.recv_from(&mut buf) {
             Ok((size, src)) => {
+                println!("size: {}", size);
                 input_message_channel
                     .send((buf[..size].to_vec(), src))
                     .expect("channel dropped");
@@ -238,6 +239,7 @@ fn handle_message(
     }
 }
 
+#[cfg(feature = "k8s")]
 fn agones_sdk(barrier: Arc<Barrier>) {
     let rt = tokio::runtime::Runtime::new().unwrap();
 
@@ -269,7 +271,9 @@ fn main() {
 
     let mut handles = Vec::new();
 
-    let barrier = Arc::new(Barrier::new(3));
+    // Agones only runs under the `k8s` feature, so it only joins the startup
+    // barrier in that build. Otherwise it's just handle_message + sender_thread.
+    let barrier = Arc::new(Barrier::new(if cfg!(feature = "k8s") { 3 } else { 2 }));
 
     let game_history = Arc::new(Mutex::new(VecDeque::<(u32, GameState)>::with_capacity(16)));
 
@@ -294,6 +298,7 @@ fn main() {
     let b = barrier.clone();
     handles.push(spawn(move || sender_thread(gh, s, b)));
 
+    #[cfg(feature = "k8s")]
     spawn(move || {
         agones_sdk(barrier);
     });

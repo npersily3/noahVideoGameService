@@ -149,6 +149,11 @@ docker build -t noah_game_server:[tag] .
 docker run -d -p 34254:34254/udp noah_game_server:latest
 ```
 
+The image builds with the `k8s` feature (`cargo build --features k8s`), which pulls in
+the `container` build path **and** the Agones SDK lifecycle thread — so the binary in the
+image expects to run inside an Agones-managed pod. For a plain containerized build without
+Agones, build with `--features container` instead.
+
 
 ---
 

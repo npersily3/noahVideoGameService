@@ -131,8 +131,11 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 var err error
 var clientState ClientState
+var address *string
 
 func main() {
+
+	address = flag.String("k8s", "127.0.0.1:34254", "k8s server address")
 
 	clientState.initClientState()
 
