@@ -46,6 +46,8 @@ type ClientUDPMessage struct {
 	LeftClick  bool  `json:"left_click"`
 	MouseX     int32 `json:"mouse_x"`
 	MouseY     int32 `json:"mouse_y"`
+	// the world in which the client is moving in
+	client_perspective uint32  `json:"client_perspective"`
 }
 
 type ServerUDPMessage struct {
