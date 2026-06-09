@@ -73,6 +73,12 @@ impl GameState {
     }
 }
 
+
+// assumes square hitbox, fine for now
+fn was_hit(mouse_x: u32, mouse_y: u32, player_x: i32, player_y: i32, player_radius: i32) -> bool {
+    return (mouse_x < (player_x + player_radius) as u32) && (mouse_x > (player_x - player_radius) as u32) && (mouse_y < (player_y + player_radius) as u32) && (mouse_x > (player_y - player_radius) as u32);
+}
+
 // Apply a single input bitmap to one player's position and facing angle.
 fn apply_input(
     game_state: &mut GameState,
@@ -112,7 +118,12 @@ fn apply_input(
     if left_click {
         let player_world = 1;
         //now for hit detection
-        for (&other_id, other_client) in game_state.clients.iter() {}
+        for (&other_id, mut other_client) in game_state.clients.iter_mut() {
+            if was_hit(mouse_x, mouse_y, other_client.state.x, other_client.state.y, 3) {
+                //right now let the client handle the death, in the future this will be changed to a standalone message with acking
+                other_client.state.health -= 33;
+            }
+        }
     }
 }
 
@@ -160,7 +171,6 @@ fn handle_message(
 
     loop {
         loop {
-
             let deadline = Instant::now() + TICK_PERIOD;
 
             // this macro allows us to wait behind 2 blocking operations
@@ -234,7 +244,7 @@ fn handle_message(
         }
         let mut world_history = world_history.lock().unwrap();
 
-        world_history.push_front((game_tick ,current_gamestate.clone()));
+        world_history.push_front((game_tick, current_gamestate.clone()));
         game_tick += 1;
     }
 }
