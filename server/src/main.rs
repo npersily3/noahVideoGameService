@@ -1,3 +1,5 @@
+pub mod utils;
+
 use crossbeam::{channel, select};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
@@ -118,7 +120,7 @@ fn apply_input(
     if left_click {
         let player_world = 1;
         //now for hit detection
-        for (&other_id, mut other_client) in game_state.clients.iter_mut() {
+        for (&_other_id, other_client) in game_state.clients.iter_mut() {
             if was_hit(mouse_x, mouse_y, other_client.state.x, other_client.state.y, 3) {
                 //right now let the client handle the death, in the future this will be changed to a standalone message with acking
                 other_client.state.health -= 33;
@@ -137,15 +139,16 @@ fn recv_message(
     // Receives a single datagram message on the socket. If `buf` is too small to hold
     // the message, it will be cut off.
 
-    let mut buf = [0; 100];
+
+    let mut buf = [0; 1024];
 
     loop {
         match socket.recv_from(&mut buf) {
             Ok((size, src)) => {
                 println!("size: {}", size);
-                input_message_channel
-                    .send((buf[..size].to_vec(), src))
-                    .expect("channel dropped");
+                let err =  input_message_channel.send((buf[..size].to_vec(), src));
+
+                assert_eq!(err, Ok(()));
             }
             Err(e) => {
                 println!("couldn't recieve from {:?}", e);
@@ -170,8 +173,11 @@ fn handle_message(
     barrier.wait();
 
     loop {
+
+        let deadline = Instant::now() + TICK_PERIOD;
+
         loop {
-            let deadline = Instant::now() + TICK_PERIOD;
+
 
             // this macro allows us to wait behind 2 blocking operations
             select! {
