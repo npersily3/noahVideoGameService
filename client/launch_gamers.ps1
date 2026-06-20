@@ -1,27 +1,36 @@
 # Launches N client instances ("gamers"), each on its own HTTP port,
 # and opens a browser tab for each one.
 #
-#   ./launch_gamers.ps1 -N 3            # gamers on 8080, 8081, 8082
+#   ./launch_gamers.ps1 -N 3                              # gamers on 8080, 8081, 8082, server 127.0.0.1:34254
 #   ./launch_gamers.ps1 -N 5 -BasePort 9000
+#   ./launch_gamers.ps1 -N 3 -Server 127.0.0.1:7165      # point at kind/Agones hostPort
 #
 param(
     [int]$N = 2,
     [int]$BasePort = 8080,
+    [string]$Server = "127.0.0.1:34254",
+    [switch]$Debug,
     [switch]$NoBrowser
 )
 
 # Run from the client folder so index.html resolves correctly.
 Set-Location -Path $PSScriptRoot
 
-Write-Host "Building client..."
-go build -o client.exe .
+if ($Debug) {
+    Write-Host "Building client (debug: logging sent UDP to udp_debug_<id>.txt)..."
+    go build -tags debug -o client.exe .
+}
+else {
+    Write-Host "Building client..."
+    go build -o client.exe .
+}
 if ($LASTEXITCODE -ne 0) { throw "go build failed" }
 
 $procs = @()
 for ($i = 0; $i -lt $N; $i++) {
     $port = $BasePort + $i
     Write-Host "Starting gamer $($i + 1) on port $port"
-    $procs += Start-Process -FilePath ".\client.exe" -ArgumentList "-port", "$port" -PassThru
+    $procs += Start-Process -FilePath ".\client.exe" -ArgumentList "-port", "$port", "-k8s", "$Server" -PassThru
     if (-not $NoBrowser) {
         Start-Process "http://localhost:$port"
     }

@@ -78,7 +78,7 @@ impl GameState {
 
 // assumes square hitbox, fine for now
 fn was_hit(mouse_x: u32, mouse_y: u32, player_x: i32, player_y: i32, player_radius: i32) -> bool {
-    return (mouse_x < (player_x + player_radius) as u32) && (mouse_x > (player_x - player_radius) as u32) && (mouse_y < (player_y + player_radius) as u32) && (mouse_x > (player_y - player_radius) as u32);
+    return (mouse_x < (player_x + player_radius) as u32) && (mouse_x > (player_x - player_radius) as u32) && (mouse_y < (player_y + player_radius) as u32) && (mouse_y > (player_y - player_radius) as u32);
 }
 
 // Apply a single input bitmap to one player's position and facing angle.
@@ -122,8 +122,9 @@ fn apply_input(
         //now for hit detection
         for (&_other_id, other_client) in game_state.clients.iter_mut() {
             if was_hit(mouse_x, mouse_y, other_client.state.x, other_client.state.y, 3) {
-                //right now let the client handle the death, in the future this will be changed to a standalone message with acking
-                other_client.state.health -= 33;
+                if (other_client.state.health > 0) {
+                    other_client.state.health -= 33;
+                }
             }
         }
     }
@@ -145,7 +146,7 @@ fn recv_message(
     loop {
         match socket.recv_from(&mut buf) {
             Ok((size, src)) => {
-                println!("size: {}", size);
+             //   println!("size: {}", size);
                 let err =  input_message_channel.send((buf[..size].to_vec(), src));
 
                 assert_eq!(err, Ok(()));
@@ -262,8 +263,10 @@ fn agones_sdk(barrier: Arc<Barrier>) {
     rt.block_on(async {
         let mut sdk = agones::Sdk::new(None, None).await.unwrap();
 
-        barrier.wait();
+      //  barrier.wait();
+        println!("rt launched");
         sdk.ready().await.unwrap();
+        println!("sdk ready");
 
         loop {
             let health = sdk.health_check();

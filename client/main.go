@@ -78,6 +78,8 @@ func sendToServerLoop() {
 		case <-ticker.C:
 			udpMessage := getClientUDPMessage(lastInputMessage)
 
+			logUDP(udpMessage) // no-op unless built with -tags debug
+
 			outgoing, err := json.Marshal(udpMessage)
 
 			if err != nil {
@@ -135,7 +137,12 @@ var address *string
 
 func main() {
 
+	// Parse flags before anything uses them: initClientState dials *address, and
+	// the HTTP server below uses *port. Parsing afterwards left both stuck on
+	// their defaults, so -k8s (e.g. the clustered 7165 hostPort) was ignored.
 	address = flag.String("k8s", "127.0.0.1:34254", "k8s server address")
+	port := flag.String("port", "8080", "HTTP port for this client to serve the game on")
+	flag.Parse()
 
 	clientState.initClientState()
 
@@ -144,18 +151,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
-	//buf := make([]byte, 1024)
-	//n, err := conn.Read(buf)
-	//
-	//if err != nil {
-	//	panic(err)
-	//}
-
-	//println(string(buf[:n]))
-
-	port := flag.String("port", "8080", "HTTP port for this client to serve the game on")
-	flag.Parse()
 
 	addr := ":" + *port
 
