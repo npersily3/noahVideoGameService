@@ -28,8 +28,60 @@ concept is learned one layer at a time.
   the server's UDP socket. It batches input into a bitmap and sends one packet per
   tick (60 Hz), and forwards server snapshots back to the browser.
 - **Rust server (`server/`)** — the authority. It receives client input, updates the
-  game state, and broadcasts the full game state to every connected client on a fixed
-  60 Hz tick.
+  game state, and broadcasts the latest snapshot to every connected client on a fixed
+  60 Hz tick. Internally it is split across several threads — see
+  [Server internals](#server-internals-rust) below.
+
+### Server internals (Rust)
+
+Work is split across three threads (plus an Agones health thread), wired together by a
+crossbeam channel and a shared snapshot history. No single thread both reads the socket
+and holds the state lock, so the socket stays drained and the broadcast never stalls
+input handling.
+
+```
+            UDP :34254
+                │
+   recv thread  │  recv_message
+                ▼  reads datagrams — no parsing, no locks
+        ┌──────────────────┐
+        │ crossbeam channel │   (Vec<u8>, SocketAddr)
+        └──────────────────┘
+                │
+   tick thread  │  handle_message
+                ▼  each 60 Hz tick, drain the channel via select!:
+                     parse → spawn new / drop stale (sequencing) → apply_input
+                     onto a thread-local `current_gamestate`
+                     at the tick deadline: push_front((tick, current_gamestate.clone()))
+                │
+                ▼
+   world_history: Arc<Mutex<VecDeque<(u32, GameState)>>>   (ring of recent snapshots)
+                │
+ sender thread  │  sender_thread
+                ▼  each 60 Hz tick: lock, copy the head snapshot's players +
+                   client addresses, unlock, broadcast to every client
+            UDP out
+```
+
+- **recv thread (`recv_message`)** — the only thread that touches the socket. It does no
+  parsing and takes no locks: each datagram is copied into a `Vec<u8>` and pushed, with
+  its source address, onto the channel. Keeps the socket drained even when the rest of
+  the pipeline is busy.
+- **tick thread (`handle_message`)** — owns the authoritative *live* state
+  (`current_gamestate`), which never leaves the thread. Using `select!` with a per-tick
+  deadline timer, it pulls inputs off the channel until the tick expires — parsing each,
+  spawning first-seen players, dropping stale/duplicate packets by `request_number`, and
+  applying inputs. At the tick boundary it clones the state and pushes it onto the front
+  of `world_history`, tagged with a monotonic tick number.
+- **sender thread (`sender_thread`)** — every tick it locks `world_history`, copies the
+  head (most recent) snapshot's player states and target addresses into fresh buffers,
+  releases the lock, then broadcasts. The lock is held only for the copy, never across
+  the blocking network sends.
+- **Agones thread (`agones_sdk`)** — pings the Agones SDK health endpoint and drives the
+  GameServer lifecycle.
+
+The `world_history` ring (capacity 16) keeps the last several snapshots around — the
+foundation for the Phase 5 lag-compensation / rewind work.
 
 ### Wire protocol (current)
 
@@ -37,14 +89,18 @@ Messages are JSON (will be replaced with a binary format in a later phase).
 
 **Client → Server** (`ClientUDPMessage`):
 ```json
-{ "user_id": 12345, "request_number": 42, "input_bitmap": 9 }
+{ "user_id": 12345, "request_number": 42, "input_bitmap": 9,
+  "left_click": false, "mouse_x": 720, "mouse_y": 410, "client_perspective": 0 }
 ```
 `input_bitmap` is `W=1, A=2, S=4, D=8` OR'd together (e.g. `9` = W+D).
 
 **Server → Client** (`ServerUDPMessage`):
 ```json
-{ "request_number": 0, "state": { "players": { "12345": { "x": 600, "y": 400 } } } }
+{ "request_number": 0, "server_tick": 128,
+  "state": { "players": { "12345": { "x": 600, "y": 400, "angle": 0.0, "health": 100 } } } }
 ```
+`server_tick` is the monotonic tick number of the snapshot being sent (the `u32` paired
+with the `GameState` in `world_history`).
 
 ---
 
@@ -93,6 +149,11 @@ docker build -t noah_game_server:[tag] .
 docker run -d -p 34254:34254/udp noah_game_server:latest
 ```
 
+The image builds with the `k8s` feature (`cargo build --features k8s`), which pulls in
+the `container` build path **and** the Agones SDK lifecycle thread — so the binary in the
+image expects to run inside an Agones-managed pod. For a plain containerized build without
+Agones, build with `--features container` instead.
+
 
 ---
 
@@ -111,14 +172,14 @@ The project is built in phases. **Currently finishing Phase 2.**
 5. Clients send inputs only — the server owns all state
 6. Packets are sequenced and selectively reliable
 
-### Phase 3 — Single Pod on Kubernetes *(I am here)*
+### Phase 3 — Single Pod on Kubernetes 
 7. The server runs in a single Kubernetes pod and is reachable over UDP
 8. Kubernetes knows when the pod is healthy and when it is not
 9. The pod moves through the Agones GameServer lifecycle correctly
 
-### Phase 4 — Load Testing and Baselines
-10. A bot swarm generates realistic, reproducible load against the server
-11. Change game to be more of a shooter
+### Phase 4 — Load Testing and Baselines *(I am here)*
+10. Change game to be more of a shooter
+11. A bot swarm generates realistic, reproducible load against the server
 12. Metrics are visible for tick rate stability, memory, and bandwidth per client. Baselines are recorded — every future optimization is measured against these
 
 ### Phase 5 — Netcode Optimizations
@@ -179,8 +240,8 @@ References used throughout the project, organized by the phase where they were m
 
 ```
 server/            Rust authoritative UDP server
-  src/main.rs        recv loop + 60 Hz sender/tick loop
-  Cargo.toml         serde / serde_json
+  src/main.rs        recv pump → channel → tick/handler → 60 Hz sender threads
+  Cargo.toml         serde / serde_json / crossbeam / agones
 client/            Go client + browser frontend
   main.go            WebSocket ↔ UDP bridge, input loop
   utils.go           shared types + client state

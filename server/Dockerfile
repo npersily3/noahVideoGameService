@@ -33,7 +33,7 @@ RUN --mount=type=bind,source=src,target=src \
     --mount=type=cache,target=/app/target/ \
     --mount=type=cache,target=/usr/local/cargo/git/db \
     --mount=type=cache,target=/usr/local/cargo/registry/ \
-cargo build --features container --locked --release && \
+cargo build --features k8s --locked --release && \
 cp ./target/release/$APP_NAME /bin/server
 
 ################################################################################
@@ -64,8 +64,8 @@ USER appuser
 # Copy the executable from the "build" stage.
 COPY --from=build /bin/server /bin/
 
-# Expose the port that the application listens on.
-EXPOSE 3425
+# Expose the port that the application listens on (UDP game traffic).
+EXPOSE 34254/udp
 
 # What the container should run when it is started.
 CMD ["/bin/server"]
