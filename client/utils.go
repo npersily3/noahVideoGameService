@@ -1,12 +1,5 @@
 package main
 
-import (
-	"math/rand"
-	"net"
-
-	"github.com/gorilla/websocket"
-)
-
 // matches what the browser sends
 type InputMessage struct {
 	Type string `json:"type"`
@@ -55,27 +48,3 @@ type ServerUDPMessage struct {
 	State          StateMessage `json:"state"`
 }
 
-type ClientState struct {
-	id           uint64
-	player       PlayerState
-	serverConn   net.Conn
-	upgrader     websocket.Upgrader
-	frontendConn *websocket.Conn
-	inputChannel chan InputMessage
-}
-
-func (c *ClientState) initClientState() {
-	c.player = PlayerState{
-		X: 0,
-		Y: 0,
-	}
-	c.id = rand.Uint64()
-
-	c.serverConn, err = net.Dial("udp", *address)
-
-	if err != nil {
-		panic(err)
-	}
-
-	c.inputChannel = make(chan InputMessage, 16)
-}

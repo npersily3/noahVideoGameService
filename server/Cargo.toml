@@ -17,3 +17,6 @@ default = []
 container = []
 # k8s pulls in everything `container` does, plus the Agones SDK lifecycle thread.
 k8s = ["container"]
+
+[build]
+target-dir = "../build/server"

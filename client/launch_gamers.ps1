@@ -16,13 +16,17 @@ param(
 # Run from the client folder so index.html resolves correctly.
 Set-Location -Path $PSScriptRoot
 
+$outDir = "..\build\client"
+New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+$exe = "$outDir\client.exe"
+
 if ($Debug) {
     Write-Host "Building client (debug: logging sent UDP to udp_debug_<id>.txt)..."
-    go build -tags debug -o client.exe .
+    go build -tags debug -o $exe main.go utils.go
 }
 else {
     Write-Host "Building client..."
-    go build -o client.exe .
+    go build -o $exe main.go utils.go
 }
 if ($LASTEXITCODE -ne 0) { throw "go build failed" }
 
@@ -30,7 +34,7 @@ $procs = @()
 for ($i = 0; $i -lt $N; $i++) {
     $port = $BasePort + $i
     Write-Host "Starting gamer $($i + 1) on port $port"
-    $procs += Start-Process -FilePath ".\client.exe" -ArgumentList "-port", "$port", "-k8s", "$Server" -PassThru
+    $procs += Start-Process -FilePath $exe -ArgumentList "-port", "$port", "-k8s", "$Server" -PassThru
     if (-not $NoBrowser) {
         Start-Process "http://localhost:$port"
     }

@@ -5,6 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math/rand"
+	"net"
 	"net/http"
 	"time"
 
@@ -78,8 +80,6 @@ func sendToServerLoop() {
 		case <-ticker.C:
 			udpMessage := getClientUDPMessage(lastInputMessage)
 
-			logUDP(udpMessage) // no-op unless built with -tags debug
-
 			outgoing, err := json.Marshal(udpMessage)
 
 			if err != nil {
@@ -135,6 +135,31 @@ var err error
 var clientState ClientState
 var address *string
 
+type ClientState struct {
+	id           uint64
+	player       PlayerState
+	serverConn   net.Conn
+	upgrader     websocket.Upgrader
+	frontendConn *websocket.Conn
+	inputChannel chan InputMessage
+}
+
+func (c *ClientState) initClientState() {
+	c.player = PlayerState{
+		X: 0,
+		Y: 0,
+	}
+	c.id = rand.Uint64()
+
+	c.serverConn, err = net.Dial("udp", *address)
+
+	if err != nil {
+		panic(err)
+	}
+
+	c.inputChannel = make(chan InputMessage, 16)
+}
+
 func main() {
 
 	// Parse flags before anything uses them: initClientState dials *address, and
@@ -182,10 +207,8 @@ func updateFrontend() {
 
 		err = json.Unmarshal(buf[:n], &serverMessage)
 
-		//	fmt.Printf("Received message from server: %s\n", string(buf[:n]))
-		//TODO this nil state is how we send messages back to the frontend
+		//todo, once we have delta compression have a global state that is updated etc
 		gameState := convertServerMessageToGameState(serverMessage)
-		//fmt.Printf("GameState: %v\n", gameState)
 
 		out, err := json.Marshal(gameState)
 		if err != nil {
