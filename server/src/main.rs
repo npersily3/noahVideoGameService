@@ -4,11 +4,43 @@ use crossbeam::{channel, select};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::net::{SocketAddr, UdpSocket};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Barrier, Mutex, MutexGuard};
 use std::thread::{sleep, spawn};
 use std::time::{Duration, Instant};
 use tokio;
 //use serde_json::Result;
+
+// Phase 4 baseline counters: bumped from the hot threads, drained once a
+// second by metrics_thread. Relaxed is fine, these are stats, not sync points.
+static BYTES_SENT: AtomicU64 = AtomicU64::new(0);
+static BYTES_RECEIVED: AtomicU64 = AtomicU64::new(0);
+static CLIENT_COUNT: AtomicU64 = AtomicU64::new(0);
+static MAX_TICK_NANOS: AtomicU64 = AtomicU64::new(0);
+static TICK_OVERRUN_COUNT: AtomicU64 = AtomicU64::new(0);
+
+// Prints and resets the counters above once a second.
+fn metrics_thread() {
+    loop {
+        sleep(Duration::from_secs(1));
+
+        let sent = BYTES_SENT.swap(0, Ordering::Relaxed);
+        let received = BYTES_RECEIVED.swap(0, Ordering::Relaxed);
+        let clients = CLIENT_COUNT.load(Ordering::Relaxed).max(1);
+        let max_tick_ms = MAX_TICK_NANOS.swap(0, Ordering::Relaxed) as f64 / 1_000_000.0;
+        let overruns = TICK_OVERRUN_COUNT.swap(0, Ordering::Relaxed);
+
+        println!(
+            "[metrics] {} clients | {:.1} KB/s sent, {:.1} KB/s recv ({:.2} KB/s/client) | tick: max {:.2}ms, {} overruns/s",
+            clients,
+            sent as f64 / 1024.0,
+            received as f64 / 1024.0,
+            (sent + received) as f64 / 1024.0 / clients as f64,
+            max_tick_ms,
+            overruns,
+        );
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Wire types — what actually goes over the socket. Keep these separate from the
@@ -147,6 +179,7 @@ fn recv_message(
         match socket.recv_from(&mut buf) {
             Ok((size, src)) => {
              //   println!("size: {}", size);
+                BYTES_RECEIVED.fetch_add(size as u64, Ordering::Relaxed);
                 let err =  input_message_channel.send((buf[..size].to_vec(), src));
 
                 assert_eq!(err, Ok(()));
@@ -330,6 +363,8 @@ fn main() {
     let b = barrier.clone();
     handles.push(spawn(move || sender_thread(gh, s, b)));
 
+    handles.push(spawn(metrics_thread));
+
     #[cfg(feature = "k8s")]
     spawn(move || {
         agones_sdk(barrier);
@@ -398,7 +433,14 @@ fn sender_thread(
             }
         }
 
+        CLIENT_COUNT.store(targets.len() as u64, Ordering::Relaxed);
+        BYTES_SENT.fetch_add((bytes.len() * targets.len()) as u64, Ordering::Relaxed);
+
         let delta_time = starting_time.elapsed();
+        MAX_TICK_NANOS.fetch_max(delta_time.as_nanos() as u64, Ordering::Relaxed);
+        if delta_time >= TICK_PERIOD {
+            TICK_OVERRUN_COUNT.fetch_add(1, Ordering::Relaxed);
+        }
         if delta_time < TICK_PERIOD {
             sleep(TICK_PERIOD - delta_time);
         }
