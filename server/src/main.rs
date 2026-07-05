@@ -260,21 +260,34 @@ fn handle_message(
 fn agones_sdk(barrier: Arc<Barrier>) {
     let rt = tokio::runtime::Runtime::new().unwrap();
 
+    println!("agones_sdsk");
+
+    barrier.wait();
     rt.block_on(async {
-        let mut sdk = agones::Sdk::new(None, None).await.unwrap();
-
-      //  barrier.wait();
-        println!("rt launched");
-        sdk.ready().await.unwrap();
-        println!("sdk ready");
-
         loop {
-            let health = sdk.health_check();
-            if health.send(()).await.is_err() {
-                eprintln!("the health receiver was closed");
-            }
+            let mut result = agones::Sdk::new(None, None).await;
 
-            sleep(Duration::from_secs(3))
+            match result {
+                Ok(mut sdk) => {
+                    //  barrier.wait();
+                    println!("rt launched");
+                    sdk.ready().await.unwrap();
+                    println!("sdk ready");
+
+                    loop {
+                        let health = sdk.health_check();
+                        if health.send(()).await.is_err() {
+                            eprintln!("the health receiver was closed");
+                        }
+
+                        sleep(Duration::from_secs(3))
+                    }
+                }
+                Err(e) => {
+                    println!("error {:?}", e);
+                }
+
+            }
         }
     });
 }
