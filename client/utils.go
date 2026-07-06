@@ -1,5 +1,10 @@
 package main
 
+import (
+	"bytes"
+	"encoding/binary"
+)
+
 // matches what the browser sends
 type InputMessage struct {
 	Type string `json:"type"`
@@ -41,6 +46,14 @@ type ClientUDPMessage struct {
 	MouseY     int32 `json:"mouse_y"`
 	// the world in which the client is moving in
 	Client_perspective uint32 `json:"client_perspective"`
+}
+
+// Serialize writes each field in declaration order as fixed-width big-endian
+// bytes (26 bytes total). Server side must decode in the same order.
+func (m ClientUDPMessage) Serialize() []byte {
+	buf := new(bytes.Buffer)
+	binary.Write(buf, binary.BigEndian, m)
+	return buf.Bytes()
 }
 
 type ServerUDPMessage struct {

@@ -80,14 +80,9 @@ func sendToServerLoop() {
 		case <-ticker.C:
 			udpMessage := getClientUDPMessage(lastInputMessage)
 
-			outgoing, err := json.Marshal(udpMessage)
+			outgoing := udpMessage.Serialize()
 
-			if err != nil {
-				log.Println(err)
-				return
-			}
-
-			_, err = clientState.serverConn.Write(outgoing)
+			_, err := clientState.serverConn.Write(outgoing)
 
 			if err != nil {
 				log.Println(err)

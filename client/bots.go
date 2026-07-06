@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -74,12 +73,7 @@ func serverBot(addr *string) {
 	for {
 		message := info.getUDPMessage()
 
-		outgoing, err := json.Marshal(message)
-
-		if err != nil {
-			log.Println(err)
-			return
-		}
+		outgoing := message.Serialize()
 
 		_, err = conn.Write(outgoing)
 

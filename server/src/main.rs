@@ -1,7 +1,7 @@
 pub mod utils;
 
 use crossbeam::{channel, select};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -48,7 +48,7 @@ fn metrics_thread() {
 // leak into a broadcast and we only serialize the bytes we mean to send.
 // ---------------------------------------------------------------------------
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Debug)]
 struct ClientUDPMessage {
     user_id: u64,
     request_number: u32,
@@ -57,6 +57,27 @@ struct ClientUDPMessage {
     mouse_x: u32,
     mouse_y: u32,
     client_perspective: u32,
+}
+
+impl ClientUDPMessage {
+    // Must match the field order/widths the Go client writes in
+    // ClientUDPMessage.Serialize() (client/utils.go): big-endian, no padding.
+    const WIRE_SIZE: usize = 26;
+
+    fn from_bytes(buf: &[u8]) -> Option<Self> {
+        if buf.len() < Self::WIRE_SIZE {
+            return None;
+        }
+        Some(ClientUDPMessage {
+            user_id: u64::from_be_bytes(buf[0..8].try_into().unwrap()),
+            request_number: u32::from_be_bytes(buf[8..12].try_into().unwrap()),
+            input_bitmap: buf[12],
+            left_click: buf[13] != 0,
+            mouse_x: u32::from_be_bytes(buf[14..18].try_into().unwrap()),
+            mouse_y: u32::from_be_bytes(buf[18..22].try_into().unwrap()),
+            client_perspective: u32::from_be_bytes(buf[22..26].try_into().unwrap()),
+        })
+    }
 }
 
 // This the world state without the personal data, (no addresses should be sent)
@@ -220,10 +241,14 @@ fn handle_message(
                         Ok((buf, src)) => {
 
                             // Invalid packets are rejected here, before we touch any state.
-                            let message = match serde_json::from_slice::<ClientUDPMessage>(&buf) {
-                                Ok(message) => message,
-                                Err(e) => {
-                                    println!("couldn't parse message from {src:?}: {e:?}");
+                            let message = match ClientUDPMessage::from_bytes(&buf) {
+                                Some(message) => message,
+                                None => {
+                                    println!(
+                                        "couldn't parse message from {src:?}: expected {} bytes, got {}",
+                                        ClientUDPMessage::WIRE_SIZE,
+                                        buf.len()
+                                    );
                                     continue;
                                 }
                             };
